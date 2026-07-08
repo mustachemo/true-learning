@@ -22,7 +22,7 @@ Test image: `skimage.data.moon()` — 512×512, uint8, deliberately low-contrast
 
 For an image with gray levels $v \in \{0, 1, \dots, L-1\}$ (here $L = 256$) and $N$ total pixels:
 
-$$h(v) = \#\{\text{pixels with value } v\} \qquad p(v) = \frac{h(v)}{N} \qquad C(v) = \sum_{k=0}^{v} p(k)$$
+$$h(v) = \text{number of pixels with value } v \qquad p(v) = \frac{h(v)}{N} \qquad C(v) = \sum_{k=0}^{v} p(k)$$
 
 - $h(v)$ — the **histogram**: raw counts per gray level.
 - $p(v)$ — the histogram normalized into a probability distribution (PDF).
