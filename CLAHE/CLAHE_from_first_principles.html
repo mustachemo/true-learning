@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLAHE From First Principles</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500&display=swap"
+        rel="stylesheet">
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+    </script>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f5efe2;
+            --paper: rgba(255, 251, 243, 0.9);
+            --paper-strong: #fffdf7;
+            --ink: #231f18;
+            --muted: #6c5f4f;
+            --line: rgba(84, 67, 43, 0.16);
+            --accent: #8e4b1f;
+            --accent-soft: rgba(142, 75, 31, 0.12);
+            --shadow: 0 28px 80px rgba(74, 55, 34, 0.16);
+            --radius-lg: 28px;
+            --radius-md: 18px;
+            --radius-sm: 12px;
+            --content-width: min(1100px, calc(100vw - 3rem));
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Source Sans 3', sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(201, 122, 54, 0.18), transparent 32%),
+                radial-gradient(circle at right 12% top 14%, rgba(132, 94, 41, 0.12), transparent 22%),
+                linear-gradient(180deg, #f7f1e5 0%, #efe6d5 100%);
+            line-height: 1.65;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(83, 67, 43, 0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(83, 67, 43, 0.025) 1px, transparent 1px);
+            background-size: 28px 28px;
+            mask-image: radial-gradient(circle at center, black 50%, transparent 100%);
+        }
+
+        .shell {
+            width: var(--content-width);
+            margin: 0 auto;
+            padding: 2rem 0 4rem;
+        }
+
+        .hero {
+            position: relative;
+            overflow: hidden;
+            padding: 2.4rem;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-lg);
+            background: linear-gradient(145deg, rgba(255, 252, 246, 0.92), rgba(248, 238, 218, 0.88));
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(16px);
+        }
+
+        .hero::after {
+            content: '';
+            position: absolute;
+            right: -5rem;
+            top: -5rem;
+            width: 15rem;
+            height: 15rem;
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(142, 75, 31, 0.18), rgba(142, 75, 31, 0));
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 0.92rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 1rem 0 0.8rem;
+            max-width: 14ch;
+            font-family: 'Fraunces', serif;
+            font-size: clamp(2.6rem, 5vw, 4.6rem);
+            line-height: 0.95;
+            letter-spacing: -0.04em;
+        }
+
+        .hero p {
+            margin: 0;
+            max-width: 70ch;
+            color: var(--muted);
+            font-size: 1.08rem;
+        }
+
+        .hero-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-top: 1.8rem;
+        }
+
+        .hero-card {
+            padding: 1rem 1.1rem;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-md);
+            background: rgba(255, 255, 255, 0.56);
+        }
+
+        .hero-card strong {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.95rem;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        .layout {
+            display: grid;
+            gap: 1.5rem;
+            grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
+            margin-top: 1.5rem;
+            align-items: start;
+        }
+
+        .toc,
+        .article-wrap {
+            border: 1px solid var(--line);
+            border-radius: var(--radius-lg);
+            background: var(--paper);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(12px);
+        }
+
+        .toc {
+            position: sticky;
+            top: 1rem;
+            padding: 1rem;
+        }
+
+        .toc h2 {
+            margin: 0 0 0.9rem;
+            font-family: 'Fraunces', serif;
+            font-size: 1.2rem;
+        }
+
+        .toc ol {
+            margin: 0;
+            padding-left: 0;
+            list-style: none;
+        }
+
+        .toc li+li {
+            margin-top: 0.55rem;
+        }
+
+        .toc a {
+            color: var(--muted);
+            text-decoration: none;
+        }
+
+        .toc a:hover,
+        .toc a:focus-visible {
+            color: var(--accent);
+        }
+
+        .article-wrap {
+            padding: clamp(1.3rem, 2vw, 2.6rem);
+        }
+
+        .article {
+            max-width: 78ch;
+            margin: 0 auto;
+            opacity: 0;
+            transform: translateY(12px);
+            animation: rise 550ms ease forwards;
+        }
+
+        @keyframes rise {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .article> :first-child {
+            margin-top: 0;
+        }
+
+        .article h2,
+        .article h3 {
+            scroll-margin-top: 1rem;
+        }
+
+        .article h2 {
+            margin: 2.6rem 0 0.9rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid var(--line);
+            font-family: 'Fraunces', serif;
+            font-size: clamp(1.8rem, 2vw, 2.2rem);
+            line-height: 1.15;
+        }
+
+        .article h3 {
+            margin: 1.65rem 0 0.6rem;
+            font-size: 1.16rem;
+            letter-spacing: 0.01em;
+        }
+
+        .article p,
+        .article li,
+        .article blockquote {
+            font-size: 1.05rem;
+        }
+
+        .article strong {
+            font-weight: 700;
+        }
+
+        .article a {
+            color: var(--accent);
+        }
+
+        .article ul,
+        .article ol {
+            padding-left: 1.35rem;
+        }
+
+        .article hr {
+            margin: 2rem 0;
+            border: 0;
+            border-top: 1px solid var(--line);
+        }
+
+        .article blockquote {
+            margin: 1.25rem 0;
+            padding: 0.95rem 1.15rem;
+            border-left: 4px solid var(--accent);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            background: rgba(142, 75, 31, 0.08);
+            color: #3e3227;
+        }
+
+        .article pre {
+            overflow-x: auto;
+            padding: 1rem 1.1rem;
+            border: 1px solid rgba(68, 52, 31, 0.24);
+            border-radius: var(--radius-md);
+            background: #211d19;
+            color: #f4efe6;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .article code {
+            font-family: 'Source Code Pro', monospace;
+            font-size: 0.93em;
+        }
+
+        .article p code,
+        .article li code,
+        .article td code,
+        .article th code {
+            padding: 0.14rem 0.34rem;
+            border-radius: 0.45rem;
+            background: rgba(99, 78, 51, 0.12);
+            color: #5f2d10;
+        }
+
+        .article table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.4rem 0;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-md);
+            background: rgba(255, 255, 255, 0.52);
+        }
+
+        .article th,
+        .article td {
+            padding: 0.9rem 1rem;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .article th {
+            background: rgba(142, 75, 31, 0.08);
+            font-size: 0.98rem;
+        }
+
+        .article tr:last-child td {
+            border-bottom: 0;
+        }
+
+        figure {
+            margin: 1.7rem 0;
+        }
+
+        figure img {
+            display: block;
+            width: 100%;
+            height: auto;
+            border: 1px solid var(--line);
+            border-radius: calc(var(--radius-md) + 2px);
+            background: var(--paper-strong);
+            box-shadow: 0 20px 35px rgba(48, 36, 23, 0.11);
+        }
+
+        figcaption {
+            margin-top: 0.65rem;
+            color: var(--muted);
+            font-size: 0.96rem;
+            text-align: center;
+        }
+
+        .mjx-container {
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 0.15rem 0;
+        }
+
+        .footer-note {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        @media (max-width: 960px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            .toc {
+                position: static;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .shell {
+                width: min(100vw - 1.2rem, 1000px);
+                padding-top: 0.9rem;
+            }
+
+            .hero {
+                padding: 1.35rem;
+            }
+
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .article-wrap {
+                padding: 1rem;
+            }
+
+            .article p,
+            .article li,
+            .article blockquote {
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <header class="hero">
+            <span class="eyebrow">Interactive Article Export</span>
+            <h1>CLAHE From First Principles</h1>
+            <p>A standalone HTML rendering of the walkthrough, preserving local figures, code blocks, tables, and LaTeX
+                math for browser viewing.</p>
+            <div class="hero-grid" aria-label="Document summary">
+                <div class="hero-card">
+                    <strong>Scope</strong>
+                    Histogram equalization, AHE, clipping, interpolation, and OpenCV parity.
+                </div>
+                <div class="hero-card">
+                    <strong>Assets</strong>
+                    Uses the local <code>figs/</code> directory as-is, so the page stays portable inside this workspace.
+                </div>
+                <div class="hero-card">
+                    <strong>Math</strong>
+                    Equations render in-browser with MathJax after the Markdown is converted to HTML.
+                </div>
+            </div>
+        </header>
+
+        <div class="layout">
+            <aside class="toc" aria-labelledby="toc-heading">
+                <h2 id="toc-heading">Sections</h2>
+                <nav id="toc"></nav>
+            </aside>
+
+            <main class="article-wrap">
+                <article id="article" class="article" aria-live="polite"></article>
+                <p class="footer-note">This page embeds the Markdown source directly, so it can be opened as a single
+                    HTML file without a build step.</p>
+            </main>
+        </div>
+    </div>
+
+    <textarea id="markdown-source" hidden># CLAHE From First Principles
+
+**Contrast Limited Adaptive Histogram Equalization**, built up one component at a time. Every component exists because the previous, simpler algorithm failed in a specific, visible way. The structure of this doc mirrors that history:
+
+```
+Histogram Equalization (HE)     → fails: one global mapping can't serve all regions
+        + Adaptive (tiles)  = AHE → fails: amplifies noise, creates block seams
+        + Contrast Limiting       → fixes noise amplification
+        + Bilinear interpolation  → fixes block seams
+        = CLAHE
+```
+
+All figures are generated by `clahe_walkthrough.py` (included). The from-scratch implementation at the end is **bit-exact** against `cv2.createCLAHE` — mean absolute difference of 0 over all 262,144 pixels.
+
+Test image: `skimage.data.moon()` — 512×512, uint8, deliberately low-contrast.
+
+---
+
+## 1. The raw material: histogram and CDF
+
+### The math
+
+For an image with gray levels $v \in \{0, 1, \dots, L-1\}$ (here $L = 256$) and $N$ total pixels:
+
+$$h(v) = \operatorname{count}(\text{pixels with value } v) \qquad p(v) = \frac{h(v)}{N} \qquad C(v) = \sum_{k=0}^{v} p(k)$$
+
+- $h(v)$ — the **histogram**: raw counts per gray level.
+- $p(v)$ — the histogram normalized into a probability distribution (PDF).
+- $C(v)$ — the **cumulative distribution function**: the fraction of pixels with value $\leq v$. Monotonically non-decreasing, ends at exactly 1.
+
+### The code
+
+```python
+hist = np.bincount(img.ravel(), minlength=256)   # h(v)
+pdf  = hist / hist.sum()                         # p(v)
+cdf  = np.cumsum(pdf)                            # C(v)
+```
+
+### The output
+
+![input, histogram, CDF](figs/01_input_hist_cdf.png)
+
+### Why this is the foundation
+
+Look at the histogram: nearly all pixels are crammed into levels ~60–180. The levels 0–60 and 200–255 are almost empty (red bands). The image *has* an 8-bit container but is only *using* about half of it — that unused dynamic range is exactly the contrast we want to recover.
+
+The CDF is the key object for everything that follows. Two properties matter:
+
+1. **Where the histogram is tall, the CDF is steep.** The CDF's slope at $v$ *is* $p(v)$ (it's a cumulative sum, so its per-step increment is the PDF). Keep this in your head — "histogram height = CDF slope" is the single fact that explains both why equalization works and why CLAHE needs a clip limit.
+2. **The CDF is monotonic and maps to $[0,1]$**, which makes it usable as a remapping function: multiply by 255 and it takes any input level to a valid output level *without ever reordering brightness* (a darker pixel never becomes brighter than a lighter one — edges and gradients keep their direction).
+
+---
+
+## 2. Global Histogram Equalization: the CDF *is* the transform
+
+### The math
+
+$$T(v) = \text{round}\big((L-1)\, C(v)\big)$$
+
+Every pixel is remapped through this single lookup table (LUT): `output = T[input]`.
+
+**Why does using the CDF as the transform flatten the histogram?** This is the probability integral transform. If a random variable $V$ has CDF $C$, then $U = C(V)$ is uniformly distributed on $[0,1]$. Intuition without the theorem: consider a crowded region of levels — many pixels, tall histogram, **steep CDF**. Steep CDF means consecutive input levels map to output levels that are *far apart* → the crowded levels get **stretched apart**. Sparse regions have a flat CDF → their levels get **squeezed together**. Stretching where crowded and squeezing where sparse is precisely histogram flattening. Nobody "designed" $T$; the image's own statistics generate it.
+
+### The code
+
+```python
+T_global = np.round(255 * cdf).astype(np.uint8)   # build LUT from CDF
+img_he   = T_global[img]                          # numpy fancy-indexing = apply LUT to every pixel
+```
+
+Two lines. Note the mechanism: an LUT application is $O(N)$ regardless of how the LUT was built — this stays true throughout CLAHE.
+
+### The output
+
+![global HE](figs/02_global_he.png)
+
+Read the top-right panel (the mapping $T$): it lies **above the identity line** for most of the range — dark/mid pixels get pushed brighter — and its slope exceeds 1 exactly where the input histogram was tall (levels ~90–150), which is the stretching in action. Bottom-right: the output CDF is nearly the ideal straight line, i.e. the output histogram is roughly uniform.
+
+### Why it's not enough
+
+![global HE failure](figs/02b_global_he_failure.png)
+
+$T$ was built from **global** statistics, which are dominated by the mid-gray majority. The dark crater region (red box) contains detail spanning maybe levels 20–70 — but globally, few pixels live there, so $C(v)$ barely rises over that interval, so $T$ barely stretches it. The dark region's local contrast improves only marginally while the mid-tones consume the entire output range. **One mapping, built from everyone's statistics, serves no one's local needs.** This failure is what motivates the "A" in CLAHE.
+
+---
+
+## 3. Going local: tiling (the "Adaptive" part)
+
+### The idea
+
+If one global mapping fails because regions have different statistics, give each region its own mapping. Partition the image into a $G \times G$ grid of tiles (OpenCV default and ours: $8 \times 8$, so 64×64-pixel tiles here) and compute one histogram → one CDF → one LUT **per tile**.
+
+### The code
+
+```python
+GRID = 8
+th, tw = H // GRID, W // GRID          # tile height/width = 64x64
+# tile centers — these become the anchor points for interpolation in step 6
+cy = np.arange(GRID)*th + th//2
+cx = np.arange(GRID)*tw + tw//2
+```
+
+### The output
+
+![tiling](figs/03_tiling.png)
+
+The green dots are **tile centers**. This matters for later: a tile's LUT is built from all 64×64 = 4096 pixels in the tile, but conceptually the LUT is "most correct" *at the tile's center* — that's the location the tile's statistics best represent. Step 6 (interpolation) leans entirely on this framing.
+
+### Why tiles differ — and why tile size is a real tradeoff
+
+![tile histograms](figs/04_tile_histograms.png)
+
+The flat sky tile (0,0) is a **massive spike** at one dark level — nearly all 4096 pixels at the same value. The crater tile (4,4) has a wide, structured distribution. These demand *completely different* mappings, which is the whole justification for going local.
+
+Tile size is a bias–variance style tradeoff:
+- **Smaller tiles** → more locally adapted, but each histogram is estimated from fewer pixels → noisier statistics → the mapping itself becomes unreliable.
+- **Bigger tiles** → robust statistics, but you drift back toward the global-HE failure.
+
+64×64 (4096 samples estimating 256 bins, ~16 samples/bin) is a reasonable middle; the parameter sweep in step 8 shows what happens at the extremes.
+
+---
+
+## 4. AHE: per-tile equalization — and its two failure modes
+
+Apply step 2's equalization independently inside each tile (no clipping, no interpolation yet). This is plain **AHE** (Adaptive Histogram Equalization), and seeing it fail teaches you exactly why CLAHE's remaining two components exist.
+
+### The code
+
+```python
+for ti in range(GRID):
+    for tj in range(GRID):
+        t = img[ti*th:(ti+1)*th, tj*tw:(tj+1)*tw]
+        c = np.cumsum(np.bincount(t.ravel(), minlength=256)) / t.size
+        out[ti*th:(ti+1)*th, tj*tw:(tj+1)*tw] = np.round(255*c).astype(np.uint8)[t]
+```
+
+### The output
+
+![AHE failures](figs/05_ahe_failures.png)
+
+### Failure mode 1: noise amplification (why "Contrast Limited" exists)
+
+The flat sky tile is now a snowstorm. Trace the mechanism through the chain from step 1:
+
+> flat region → all pixels near one level → **one enormous histogram spike** → CDF jumps nearly 0→1 across a few levels → **near-vertical LUT** → two pixels differing by 1–2 levels of *sensor noise* get mapped ~100+ output levels apart.
+
+Equalization cannot distinguish "signal variance" from "noise variance" — it stretches whatever variation exists. In a flat tile, the only variation *is* noise, so noise gets stretched to full contrast. In your SDA context this is the classic dark-sky-background problem: mostly-empty frames are exactly the flat-tile worst case.
+
+### Failure mode 2: block seams (why interpolation exists)
+
+Neighboring tiles have different histograms → different LUTs → the *same input gray level* maps to *different outputs* on either side of a tile border. The remapping function is **discontinuous in space**, so the eye sees a grid of seams even where the underlying image is smooth.
+
+---
+
+## 5. Contrast limiting: clip + redistribute
+
+### The idea, derived rather than asserted
+
+From step 1: **LUT slope at $v$ = CDF slope at $v$ = (scaled) histogram height at $v$.** The noise blowup was caused by an unbounded LUT slope, which was caused by an unbounded histogram peak. So: **cap the LUT's slope by capping the histogram's height.** That's the entire idea — the clip limit is a *slope limit in disguise*.
+
+### The math
+
+Ceiling per bin (OpenCV convention — the user-facing `clipLimit` is a *multiplier* over the uniform histogram height):
+
+$$\beta = \max\!\Big(\Big\lfloor \frac{\alpha \cdot N_{\text{tile}}}{L} \Big\rfloor,\ 1\Big)$$
+
+where $\alpha$ = `clipLimit` (default 2.0 here, or 40.0 in OpenCV's default constructor), $N_{\text{tile}} = 4096$, $L = 256$. A perfectly uniform tile histogram would have $N_{\text{tile}}/L = 16$ pixels per bin, so $\alpha = 2$ means "no bin may hold more than 2× the uniform share" → $\beta = 32$. Equivalently: **the local mapping may steepen contrast by at most a factor of $\alpha$ over identity.**
+
+Clip, then redistribute:
+
+$$E = \sum_{v} \max\big(h(v) - \beta,\ 0\big) \qquad \tilde h(v) = \min\big(h(v), \beta\big) + \frac{E}{L}$$
+
+- $E$ — the total "excess" pixel mass sitting above the ceiling.
+- **Why redistribute instead of discard?** The CDF must still end at 1 (equivalently, $\sum \tilde h = N_{\text{tile}}$), otherwise the LUT wouldn't span the full output range and you'd waste dynamic range. So the clipped mass is poured back **uniformly** across all bins — raising the histogram's floor slightly everywhere, which nudges the LUT slope toward 1 (identity) in the sparse regions. Clipping trades "extreme stretch at the spike" for "a bit of gentle stretch everywhere."
+
+### The code
+
+```python
+def clip_histogram(h, clip_limit_mult, n_px):
+    ceiling = max(int(clip_limit_mult * n_px / L), 1)
+    excess  = np.maximum(h - ceiling, 0).sum()   # E: mass above the ceiling
+    h = np.minimum(h, ceiling)                   # cut the peaks
+    h += excess // L                             # equal integer share per bin
+    residual = excess - (excess // L) * L        # integer-division remainder...
+    if residual:                                 # ...sprinkled +1 over evenly spaced bins
+        step = max(L // residual, 1)
+        h[np.arange(0, L, step)[:residual]] += 1
+    return h, ceiling
+```
+
+(The `residual` fiddling is OpenCV's exact integer arithmetic — since $E/L$ is rarely a whole number, the remainder is dropped one pixel at a time onto evenly spaced bins so the count is conserved *exactly*. Note the one-pass redistribution can push some bins slightly above $\beta$ again; OpenCV accepts that rather than iterating, and matching this detail is what makes our output bit-exact.)
+
+### The output — on the pathological flat tile
+
+![clipping](figs/06_clipping.png)
+
+Left: the raw spike towers over the ceiling ($\beta = 32$, red line); the red-shaded area is the excess $E \approx 3900$ px. Middle: peaks cut. Right: excess poured back — every bin gains ~15, conserving the 4096-pixel total.
+
+### The effect on the mapping function
+
+![clipped LUTs](figs/07_luts_clipped_vs_not.png)
+
+This figure is the heart of CLAHE — everything the clip limit does is visible here:
+
+- **Flat tile (left):** the unclipped LUT (red) is a near-vertical cliff — the noise-amplification machine. Clipping at 2 (green) turns it into a bounded ramp near the identity line. Maximum slope is now provably $\leq \alpha \cdot$(slope of identity), because slope ∝ histogram height ≤ β.
+- **Detailed tile (right):** the LUT was never extreme, so clipping barely changes it. **The clip limit is selective by construction** — it only intervenes where histograms spike, i.e., where the danger is.
+
+So $\alpha$ is a contrast dial with meaningful endpoints: $\alpha = 1$ forces a fully uniform post-clip histogram → LUT = identity → no-op; $\alpha \to \infty$ → no clipping → raw AHE.
+
+---
+
+## 6. Bilinear interpolation: one smooth mapping field instead of 64 discontinuous ones
+
+### The idea
+
+The seams came from applying LUTs as spatial step functions. The fix reframes the problem: treat each tile's LUT as belonging to the tile's **center point** (the green dots from step 3), and for every pixel, **blend the LUTs of its 4 nearest tile centers** by distance. The applied mapping now varies *continuously* across the image — no borders, no seams.
+
+### The math
+
+For pixel $(x, y)$, express its position in "tile-center coordinates" (center of tile $k$ sits at $(k + \tfrac12) \cdot$ tile size):
+
+$$f_y = \frac{y}{t_h} - \frac{1}{2}, \qquad y_0 = \lfloor f_y \rfloor, \quad y_1 = y_0 + 1, \quad w_y = f_y - y_0$$
+
+(same for $x$). Then with $T_{ij}$ = the LUT of the tile centered at row $i$, column $j$:
+
+$$\text{out}(x,y) = (1-w_y)(1-w_x)\,T_{y_0 x_0}[v] + (1-w_y)w_x\,T_{y_0 x_1}[v] + w_y(1-w_x)\,T_{y_1 x_0}[v] + w_y w_x\,T_{y_1 x_1}[v]$$
+
+Component by component:
+- **The $-\tfrac12$ offset** converts pixel coordinates into the lattice of tile *centers* (not tile corners). A pixel exactly on a center gets $w = 0$ toward it — that tile's LUT applies at full weight, which is exactly right since that's where the LUT is most valid.
+- **The four weights sum to 1** — it's a convex combination, so the output stays inside the range of the four candidate outputs. No over/undershoot.
+- **We interpolate LUT *outputs*, not pixels and not histograms.** Each pixel keeps its own value $v$; only the *function applied to it* is blended. Since each $T$ is monotonic and a convex combination of monotonic functions is monotonic, the blended mapping still never reorders brightness.
+- **Edge handling:** indices are clamped to $[0, G-1]$; pixels outside the outermost centers get $w$ clipped to $\{0,1\}$, which degrades bilinear → linear (edges) → nearest (corners) automatically.
+
+### The code
+
+```python
+fy = ys/th - 0.5;  fx = xs/tw - 0.5                     # tile-center coordinates
+y0 = np.clip(np.floor(fy).astype(int), 0, GRID-1)       # nearest center above/left
+y1 = np.clip(y0 + 1, 0, GRID-1)                         # nearest center below/right
+wy = np.clip(fy - y0, 0, 1)                             # distance-based weight
+# ... same for x0, x1, wx ...
+v = img.astype(int)
+out = ((1-wy)*(1-wx) * luts[y0, x0, v] + (1-wy)*wx * luts[y0, x1, v]
+     +  wy*(1-wx)    * luts[y1, x0, v] +  wy*wx    * luts[y1, x1, v])
+```
+
+`luts[y0, x0, v]` is the trick worth internalizing: `y0`, `x0`, `v` are all H×W arrays, so this single fancy-index gathers, for every pixel simultaneously, "what the top-left tile's LUT would output for this pixel's value." Four gathers + weighted sum = fully vectorized CLAHE.
+
+### The outputs
+
+Which four centers a pixel blends, geometrically:
+
+![interpolation geometry](figs/08_interpolation_geometry.png)
+
+What the blend looks like in LUT space for that red-X pixel — four candidate curves collapsing into the one black curve actually applied:
+
+![LUT blending](figs/08b_lut_blending.png)
+
+And the payoff — identical clipped LUTs, with vs. without interpolation:
+
+![interp vs not](figs/08c_interp_vs_not.png)
+
+### Why bilinear specifically
+
+It's the cheapest interpolation that is continuous in both axes: 4 lookups + 3 multiply-adds per pixel, and the weights depend only on position (precomputable). Higher-order schemes (bicubic over 16 centers) buy smoothness of *derivatives* that the eye can't see in a contrast mapping, at 4× the gathers. This cost profile is why CLAHE runs comfortably in real-time pipelines.
+
+---
+
+## 7. Full algorithm, assembled and validated
+
+Everything above, in order:
+
+```
+1. Split image into G×G tiles
+2. Per tile:  histogram → clip at β → redistribute excess → CDF → LUT
+3. Per pixel: bilinearly blend the 4 nearest tile-center LUTs, applied at the pixel's value
+```
+
+Note what step 2 costs: histograms and LUTs are built once per *tile* (64 tiny 256-bin jobs), and step 3 is O(N) gathers. CLAHE ≈ the price of two passes over the image.
+
+Validation against OpenCV (`clipLimit=2.0, tileGridSize=(8,8)`):
+
+![vs opencv](figs/09_vs_opencv.png)
+
+**Mean |difference| = 0.00, max = 0** — bit-exact, because we matched OpenCV's integer redistribution and its `floor(x + 0.5)` LUT rounding. The full journey:
+
+![journey](figs/09b_journey.png)
+
+Compare panel 4 to panels 2 and 3: CLAHE recovers the crater detail that global HE left flat, *without* the snowstorm sky or the seams of AHE.
+
+---
+
+## 8. The two knobs, and how to reason about them
+
+![param sweep](figs/10_param_sweep.png)
+
+| Knob | Controls | Low end | High end |
+|---|---|---|---|
+| `clipLimit` ($\alpha$) | max local contrast gain (LUT slope cap) | 1 = identity (no-op) | ~40 ≈ unclipped AHE: noise blowup returns |
+| `tileGridSize` ($G$) | spatial scale of adaptation | 2×2 ≈ global HE | 16×16+: very local, histograms get sample-starved |
+
+Reading the sweep: move left→right (clip ↑) and the flat sky progressively fills with amplified noise — top-right cells are effectively AHE. Move top→bottom (grid ↑) and adaptation gets finer but the 16×16 row starts showing texture "invented" from thin statistics (32×32 px tiles → 1024 samples for 256 bins → 4 samples/bin). The defaults (8×8, clip 2–4) sit where both failure modes are held off.
+
+Practical heuristics for imagery like yours:
+- **Noisy sensors / dark backgrounds** (night sky, low-SNR EO): keep clip low (1.5–2.5). The flat-tile cliff in step 5's figure is your exact threat model.
+- **Preprocessing for a detector** (e.g., feeding RF-DETR): be conservative — CLAHE changes local statistics the model may not have seen in training; if you use it at inference, use it identically in training.
+- **>8-bit data** (12/14-bit satellite imagery): the same algorithm applies with $L = 4096$ etc.; OpenCV's CLAHE supports `uint16` directly. Bin count vs tile size interacts — more bins need bigger tiles for the same samples/bin.
+- **Color images**: never equalize R,G,B independently (hue shifts) — convert to LAB, run CLAHE on L only, convert back.
+
+---
+
+## Files
+
+- `clahe_walkthrough.py` — generates every figure above; the from-scratch implementation is `clahe_scratch()` (stage 8 of the script).
+- `figs/*.png` — all intermediate outputs.
+
+Run it: `python clahe_walkthrough.py` (needs `numpy`, `matplotlib`, `opencv-python`, `scikit-image`).
+</textarea>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+    <script>
+        function slugify(text) {
+            return text
+                .toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .trim()
+                .replace(/\s+/g, '-');
+        }
+
+        function decorateImages(root) {
+            root.querySelectorAll('img').forEach((image) => {
+                image.loading = 'lazy';
+                const parent = image.parentElement;
+                if (!parent || parent.tagName !== 'P' || parent.children.length !== 1) {
+                    return;
+                }
+
+                const figure = document.createElement('figure');
+                parent.replaceWith(figure);
+                figure.appendChild(image);
+
+                if (image.alt) {
+                    const caption = document.createElement('figcaption');
+                    caption.textContent = image.alt;
+                    figure.appendChild(caption);
+                }
+            });
+        }
+
+        function buildToc(root) {
+            const items = [];
+            root.querySelectorAll('h2').forEach((heading) => {
+                const id = slugify(heading.textContent || 'section');
+                heading.id = id;
+                items.push(`<li><a href="#${id}">${heading.textContent}</a></li>`);
+            });
+            document.getElementById('toc').innerHTML = `<ol>${items.join('')}</ol>`;
+        }
+
+        async function renderArticle() {
+            marked.setOptions({ gfm: true, headerIds: false, mangle: false });
+            const markdown = document.getElementById('markdown-source').value;
+            const article = document.getElementById('article');
+            article.innerHTML = marked.parse(markdown);
+            decorateImages(article);
+            buildToc(article);
+            if (window.MathJax?.typesetPromise) {
+                await window.MathJax.typesetPromise([article]);
+            }
+        }
+
+        renderArticle().catch((error) => {
+            const article = document.getElementById('article');
+            article.innerHTML = `<p>Failed to render the article: ${error.message}</p>`;
+            console.error(error);
+        });
+    </script>
+</body>
+
+</html>
