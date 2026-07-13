@@ -125,6 +125,85 @@ A healthy baseline — 12 well-spread GCPs, σ = 0.5 px of measurement noise, ev
 
 RMSE ≈ 0.65 px from 0.5 px input noise: a well-conditioned system roughly *passes noise through* without amplifying it. Hold that thought.
 
+### The Analytical Calculus Derivation
+
+Let $S(\mathbf{J})$ be our Objective Function representing the **Sum of Squared Errors** (the squared $L_2$ norm of the residual vector $\boldsymbol{\xi}$). We express this cleanly using vector transposition, which flips column vectors into row vectors to compute a scalar sum of squares ($\boldsymbol{\xi}^\top \boldsymbol{\xi}$) without needing a computationally painful square root:
+
+$$S(\mathbf{J}) = \|\boldsymbol{\xi}\|_2^2 = \boldsymbol{\xi}^\top \boldsymbol{\xi}$$
+
+Substituting our linear model discrepancy $\boldsymbol{\xi} = \mathbf{Y} - M\mathbf{J}$:
+
+$$S(\mathbf{J}) = (\mathbf{Y} - M\mathbf{J})^\top (\mathbf{Y} - M\mathbf{J})$$
+
+Using the matrix transpose properties $(A - B)^\top = A^\top - B^\top$ and $(M\mathbf{J})^\top = \mathbf{J}^\top M^\top$, we expand the brackets:
+
+$$S(\mathbf{J}) = (\mathbf{Y}^\top - \mathbf{J}^\top M^\top) (\mathbf{Y} - M\mathbf{J})$$
+
+$$S(\mathbf{J}) = \mathbf{Y}^\top \mathbf{Y} - \mathbf{Y}^\top M\mathbf{J} - \mathbf{J}^\top M^\top \mathbf{Y} + \mathbf{J}^\top M^\top M\mathbf{J}$$
+
+Because $\mathbf{Y}^\top M\mathbf{J}$ is a $1 \times 1$ scalar, it is strictly equal to its own transpose: $(\mathbf{Y}^\top M\mathbf{J})^\top = \mathbf{J}^\top M^\top \mathbf{Y}$. This allows us to combine the two middle terms:
+
+$$S(\mathbf{J}) = \mathbf{Y}^\top \mathbf{Y} - 2\mathbf{J}^\top M^\top \mathbf{Y} + \mathbf{J}^\top M^\top M\mathbf{J}$$
+
+To find the optimal coefficient vector $\hat{\mathbf{J}}$ that minimizes this quadratic error surface, we take the partial derivative with respect to the vector $\mathbf{J}$ and set it equal to the zero vector ($\mathbf{0}$):
+
+$$\frac{\partial S}{\partial \mathbf{J}} = \mathbf{0}$$
+
+$$\mathbf{0} - 2M^\top \mathbf{Y} + 2M^\top M\hat{\mathbf{J}} = \mathbf{0}$$
+
+Isolating the terms yields the fundamental **Normal Equations**:
+
+$$2M^\top M\hat{\mathbf{J}} = 2M^\top \mathbf{Y} \implies M^\top M\hat{\mathbf{J}} = M^\top \mathbf{Y}$$
+
+Multiplying both sides from the left by the inverse matrix $(M^\top M)^{-1}$ isolates our final parameter estimator:
+
+$$\boxed{\hat{\mathbf{J}} = (M^\top M)^{-1} M^\top \mathbf{Y}}$$
+
+---
+
+### Structural View of the Final Matrices
+
+For an overdetermined system composed of $N$ Ground Control Points, here is exactly how the component matrices are organized internally:
+
+#### 1. The Design Matrix $M$ ($N \times 7$)
+
+Each row correlates a single physical point's normalized ground position $(L_i, P_i, H_i)$ against its observed image coordinate $Y_i$:
+
+$$M = \begin{bmatrix}
+1 & L_1 & P_1 & H_1 & -Y_1 L_1 & -Y_1 P_1 & -Y_1 H_1 \\
+1 & L_2 & P_2 & H_2 & -Y_2 L_2 & -Y_2 P_2 & -Y_2 H_2 \\
+\vdots & \vdots & \vdots & \vdots & \vdots & \vdots & \vdots \\
+1 & L_N & P_N & H_N & -Y_N L_N & -Y_N P_N & -Y_N H_N
+\end{bmatrix}$$
+
+#### 2. The Projected Observation Vector $M^\top\mathbf{Y}$ ($7 \times 1$)
+Multiplying the $7 \times N$ matrix $M^\top$ by the $N \times 1$ column vector $\mathbf{Y}$ compresses the raw tracking measurements into cross-correlations over each spatial dimension:
+
+$$M^\top \mathbf{Y} = \begin{bmatrix}
+\sum_{i=1}^N Y_i \\
+\sum_{i=1}^N L_i Y_i \\
+\sum_{i=1}^N P_i Y_i \\
+\sum_{i=1}^N H_i Y_i \\
+\sum_{i=1}^N -Y_i^2 L_i \\
+\sum_{i=1}^N -Y_i^2 P_i \\
+\sum_{i=1}^N -Y_i^2 H_i
+\end{bmatrix}$$
+
+#### 3. The Information Matrix $A = M^\top M$ ($7 \times 7$)
+The resulting Gramian matrix is perfectly square and symmetric. The strength of its diagonal elements and the condition number of this specific structure dictate how severely data noise will be amplified during inversion:
+
+$$A = \begin{bmatrix}
+N & \sum L_i & \sum P_i & \sum H_i & \sum -Y_i L_i & \sum -Y_i P_i & \sum -Y_i H_i \\
+\sum L_i & \sum L_i^2 & \sum L_i P_i & \sum L_i H_i & \sum -Y_i L_i^2 & \sum -Y_i L_i P_i & \sum -Y_i L_i H_i \\
+\sum P_i & \sum L_i P_i & \sum P_i^2 & \sum P_i H_i & \sum -Y_i L_i P_i & \sum -Y_i P_i^2 & \sum -Y_i P_i H_i \\
+\sum H_i & \sum L_i H_i & \sum P_i H_i & \sum H_i^2 & \sum -Y_i L_i H_i & \sum -Y_i P_i H_i & \sum -Y_i H_i^2 \\
+\sum -Y_i L_i & \sum -Y_i L_i^2 & \sum -Y_i L_i P_i & \sum -Y_i L_i H_i & \sum Y_i^2 L_i^2 & \sum Y_i^2 L_i P_i & \sum Y_i^2 L_i H_i \\
+\sum -Y_i P_i & \sum -Y_i L_i P_i & \sum -Y_i P_i^2 & \sum -Y_i P_i H_i & \sum Y_i^2 L_i P_i & \sum Y_i^2 P_i^2 & \sum Y_i^2 P_i H_i \\
+\sum -Y_i H_i & \sum -Y_i L_i H_i & \sum -Y_i P_i H_i & \sum -Y_i H_i^2 & \sum Y_i^2 L_i H_i & \sum Y_i^2 P_i H_i & \sum Y_i^2 H_i^2
+\end{bmatrix}$$
+
+*(Note: Every summation $\sum$ in the matrix blocks above evaluates strictly from $i=1$ to $N$.)*
+
 ---
 
 ## 6. The failure the paper studies: Table 1, reproduced
@@ -183,15 +262,110 @@ And the three bounds, verified across 900 trials (300 per configuration, spannin
 
 Every point sits below the $y = x$ line: the bounds hold, and — the useful part — actual errors *track* the bounds across configurations, which is what licenses using $\lambda_{\min}$ and $k(A)$ as selection criteria in §10. (Worth knowing: eq. (13)'s bound is visibly loose — worst-case over all noise directions — while eq. (9) is nearly tight. Bounds being sortable matters more here than bounds being tight.)
 
+### The Mechanics of Eigenvalues and Inversion
+
+An eigendecomposition factors the symmetric matrix $A$ into $A = V \Lambda V^\top$, where $V$ is an orthogonal matrix of eigenvectors and $\Lambda$ is a diagonal matrix containing the eigenvalues $\lambda_i$.
+
+When isolating the parameter estimate, the matrix $A$ is inverted:
+
+$$\hat{\mathbf{J}} = A^{-1} M^\top \mathbf{Y}$$
+
+The eigenvalues of the inverse matrix $A^{-1}$ are exactly the reciprocals of the eigenvalues of $A$, equal to $\frac{1}{\lambda_i}$.
+* **Large Eigenvalues ($\lambda_{\max}$):** Map directions where the GCP data provides high geometric variance. In the inverse system, their impact scales down to $\frac{1}{\lambda_{\max}}$, effectively suppressing noise.
+* **Small Eigenvalues ($\lambda_{\min}$):** Map poorly observed geometric directions (e.g., when GCPs collapse near a single line or uniform elevation plain). In the inverse system, their impact scales up to $\frac{1}{\lambda_{\min}}$, acting as a massive mathematical amplifier for random noise.
+
+The Condition Number $k(A)$ measures this information anisotropy:
+
+$$k(A) = \frac{\lambda_{\max}(A)}{\lambda_{\min}(A)}$$
+
+An ideal, perfectly balanced system sits at $k(A) = 1$. As $k(A)$ grows large, the error bounds stretch from a stable, balanced hypersphere into an unstable, elongated hyper-ellipsoid, leaving unobserved parameter dimensions highly vulnerable to tracking noise.
+
+### What Do These Equations Represent?
+Equations 9, 10, 11, and 12 establish theoretical upper bounds on how measurement errors propagate through our linear estimator. When estimating RPC parameters ($\hat{\mathbf{J}}$), the input tracking data inevitably carries random noise ($\boldsymbol{\xi}$) from manual marking inaccuracies, sensor limitations, or GPS variance. This noise distorts the final calculation, producing a parameter error vector ($\Delta\hat{\mathbf{J}}$).
+
+The paper splits this error analysis into two strict mathematical perspectives:
+
+* **Absolute Error Bounds (Equations 9 & 10):** Map the raw magnitude of input noise ($||\boldsymbol{\xi}||_2$ or its parameter-space projection $||\boldsymbol{\zeta}||_2$) directly to the maximum possible geometric size of the parameter mistake $||\Delta\hat{\mathbf{J}}||_2$.
+* **Relative Error Bounds (Equations 11 & 12):** Scale the problem into dimensionless percentages ($\delta_J$). Instead of calculating the raw length of the error vector, they assess the ratio of the error relative to the true magnitude of the parameters ($||\Delta\hat{\mathbf{J}}||_2 / ||\mathbf{J}||_2$), providing a scale-independent measurement of system degradation.
+
+### Derivation of the Perturbation Error Bounds
+
+Let the true, noiseless parameter vector satisfy the normal equations $A\mathbf{J} = M^\top \mathbf{Y}_{\text{true}}$. Let $\boldsymbol{\xi}$ be the raw tracking noise vector added to our observations such that $\mathbf{Y} = \mathbf{Y}_{\text{true}} + \boldsymbol{\xi}$.
+
+The parameter discrepancy vector is defined as $\Delta\hat{\mathbf{J}} = \hat{\mathbf{J}} - \mathbf{J}$. We isolate this error by subtracting the true system from our noisy Least Squares estimator:
+
+$$A\hat{\mathbf{J}} = M^\top(\mathbf{Y}_{\text{true}} + \boldsymbol{\xi})$$
+$$A\hat{\mathbf{J}} - A\mathbf{J} = M^\top \mathbf{Y}_{\text{true}} + M^\top \boldsymbol{\xi} - M^\top \mathbf{Y}_{\text{true}}$$
+$$A\Delta\hat{\mathbf{J}} = M^\top \boldsymbol{\xi}$$
+
+Defining the projected noise vector inside the normal equations as $\boldsymbol{\zeta} := M^\top \boldsymbol{\xi}$:
+
+$$A\Delta\hat{\mathbf{J}} = \boldsymbol{\zeta} \implies \Delta\hat{\mathbf{J}} = A^{-1}\boldsymbol{\zeta}$$
+
+Evaluating the magnitude using the $L_2$ norm:
+
+$$\|\Delta\hat{\mathbf{J}}\|_2 = \|A^{-1}\boldsymbol{\zeta}\|_2$$
+
+Applying the **Submultiplicative Property of Matrix Norms** (the length of a transformed vector cannot exceed the maximum stretching power of the matrix times the length of the input vector):
+
+$$\|\Delta\hat{\mathbf{J}}\|_2 \le \|A^{-1}\|_2 \cdot \|\boldsymbol{\zeta}\|_2$$
+
+For a symmetric positive-definite matrix $A$, the spectral norm of its inverse $\|A^{-1}\|_2$ is strictly equal to the reciprocal of its smallest eigenvalue, $\lambda_{\min}^{-1}(A)$. Substituting this identity yields the paper's **Equation (10)**:
+
+$$\boxed{\|\Delta\hat{\mathbf{J}}\|_2 \le \lambda_{\min}^{-1}(A) \cdot \|\boldsymbol{\zeta}\|_2}$$
+
+To calculate the absolute bound relative to the raw image-space pixel noise ($\boldsymbol{\xi}$) before it is projected through the system, we map the parameter discrepancy using the pseudoinverse matrix $M^+$:
+
+$$\Delta\hat{\mathbf{J}} = M^+\boldsymbol{\xi} \implies \|\Delta\hat{\mathbf{J}}\|_2 \le \|M^+\|_2 \cdot \|\boldsymbol{\xi}\|_2$$
+
+The spectral norm of the pseudoinverse matrix $\|M^+\|_2$ is $\frac{1}{\sigma_{\min}}$, where $\sigma_{\min}$ is the smallest singular value of the design matrix $M$. Because the eigenvalues of the Gramian matrix $A = M^\top M$ are the squares of the singular values of $M$, we know that $\sigma_{\min} = \sqrt{\lambda_{\min}(A)} = \lambda_{\min}^{1/2}(A)$. Substituting this stretching factor yields the paper's **Equation (9)**:
+
+$$\boxed{\|\Delta\hat{\mathbf{J}}\|_2 \le \lambda_{\min}^{-\frac{1}{2}}(A) \cdot \|\boldsymbol{\xi}\|_2}$$
+
+To derive the relative error bound **Equation (13)** (which bounds relative error via the condition number), we observe from the normal equations that $\|\mathbf{b}\| = \|A\hat{\mathbf{J}}\| \le \lambda_{\max}\|\hat{\mathbf{J}}\|$, which implies $1/\|\hat{\mathbf{J}}\| \le \lambda_{\max}/\|\mathbf{b}\|$. Combining this scaling with the absolute bound in Equation (10):
+
+$$\delta_J = \frac{\|\Delta\hat{\mathbf{J}}\|}{\|\hat{\mathbf{J}}\|} \;\le\; \frac{\|\boldsymbol{\zeta}\|}{\lambda_{\min}}\cdot\frac{\lambda_{\max}}{\|\mathbf{b}\|} \;=\; k(A)\,\delta_b, \qquad \delta_b = \frac{\|\boldsymbol{\zeta}\|}{\|\mathbf{b}\|} \qquad \boxed{\text{Eq. (13)}}$$
+
+### What Do Equations 13 and 14 Tell Us?
+
+While the previous equations quantify absolute distances, **Equations 13 and 14 shift the focus to relative scales and dimensionless percentages**. They establish a worst-case threshold for parameter stability relative to the signal strength of your system.
+
+$$\delta_{J}=k(A)\cdot\delta_{b} \qquad \text{(Eq. 13)}$$
+$$\delta_{b}=\frac{||\boldsymbol{\zeta}||}{||b||} \qquad \text{(Eq. 14)}$$
+
+Equation 14 introduces the relative input error $\delta_b$, which acts as your **Input Noise-to-Signal Ratio** by evaluating how large the projected noise vector ($\boldsymbol{\zeta}$) is compared to your projected target vector ($\mathbf{b}$).
+
+Equation 13 scales this input noise directly by the matrix condition number $k(A)$. This reveals why poor point distribution makes error explosions mathematically inevitable: if $k(A)$ explodes due to near-collinear point configurations, even a microscopic percentage of input tracking noise ($\delta_b$) will be multiplied into a catastrophic percentage error ($\delta_J$) in your final estimated camera parameters.
+
+### What Do They Tell Us About Their Bounds?
+
+Mathematically, these equations are all structured as a direct multiplication of two separate behaviors:
+
+$$\text{Output Parameter Error Bound} \le (\text{Geometric/Spectral Multiplier}) \times (\text{Input Data Noise})$$
+
+The critical revelation is that the maximum possible error in our final RPC calculation is strictly capped by the noise in our tracking data, **multiplied by a spectral amplification factor** driven entirely by the minimum eigenvalue $\lambda_{\min}(A)$ or the condition number $k(A)$.
+
+Because this spectral multiplier relies on the inverse of the matrix's structural strength ($\lambda_{\min}^{-1}(A)$), the behavior of the upper bound is violently sensitive:
+* **When $\lambda_{\min}(A)$ is large:** Its inverse remains small. The mathematical ceiling is pulled down tightly, guaranteeing that the system naturally suppresses or gracefully passes data noise through without exploding.
+* **When $\lambda_{\min}(A) \to 0$:** Its inverse explodes toward infinity. The upper bound expands drastically, meaning that even a microscopic fraction of pixel-marking noise can cause massive, erratic shifts in your final camera coefficients.
+
 ---
 
-## 8. Interlude: what these quantities *mean*
+### What Does That Mean Intuitively?
 
-Collecting the cast before the surrogate:
+Think of the information matrix $A$ as a physical foundation, and your Ground Control Points (GCPs) as the structural pillars supporting it.
 
-- $\lambda_{\min}(A)$ — how weakly the *least-examined direction* of coefficient space is pinned down by the GCPs. The amplification factor for noise is $\lambda_{\min}^{-1/2}$ (eq. 9).
-- $k(A) = \lambda_{\max}/\lambda_{\min}$ — anisotropy of the information: how much better the best-known direction is known than the worst. Scale-free (unit changes cancel), which is why it's the standard diagnostic.
-- Both need an eigendecomposition — $O(m^3)$ per evaluation, and numerically delicate exactly when $A$ is nearly singular, i.e. exactly when you care. The paper's response: a spectral quantity you can compute **without touching the spectrum**.
+#### 1. Well-Distributed GCPs (Rigid Foundation)
+If you place your 12 GCPs evenly across the entire satellite image scene, you are measuring the landscape from a wide variety of structurally independent angles. Mathematically, the columns of your design matrix $M$ share very little linear dependency, keeping the minimum eigenvalue $\lambda_{\min}(A)$ high.
+
+* **The Intuition:** Your foundation is wide, square, and rock-solid. If you nudge the input data slightly via random pixel noise ($\boldsymbol{\xi}$), the final calculated surface barely moves. The geometry of your points absorbs the shock, keeping the final output values balanced and predictable.
+
+#### 2. Poorly Distributed GCPs (The Precarious Tightrope)
+If all your GCPs are tightly clustered along a single vertical feature (like a highway or a narrow valley) or a uniform flat plain, you completely lose spatial perspective. The columns of your design matrix become nearly identical (collinear), causing the matrix to become highly **ill-conditioned**. As a result, the matrix's structural minimum eigenvalue $\lambda_{\min}(A)$ plummets toward zero and the condition number $k(A)$ skyrockets.
+
+* **The Intuition:** Your physical foundation has collapsed into a narrow line, balanced precariously like a tightrope. Even if your measurements are 99.9% accurate, your overall baseline is too narrow to provide reliable scaling. That tiny 0.1% of random background noise ($\boldsymbol{\xi}$) hits the system and is magnified by your immense structural instability ($\lambda_{\min}^{-1}(A)$ or $k(A)$). The entire calculation tips over, translating into catastrophic model failure.
+
+Equations 9–14 provide the definitive proof that **geometry matters just as much as data precision**. They convert abstract matrix properties into strict physical thresholds, allowing an automated pipeline to mathematically predict and reject dangerous point configurations before a broken camera model corrupts downstream processing.
 
 ---
 
@@ -288,6 +462,7 @@ Within a pool of already-scattered points the correlation is moderate (Spearman 
 
 - `rpc_scratch.py` — scene + true sensor + RFM fitting + all conditioning metrics + exhaustive/greedy selection.
 - `rpc_walkthrough.py` — generates every figure (~1 min; the 3000-subset sweep dominates).
-- `figs/*.png` — all intermediate outputs.
+- `figs/*.png` — synthetic intermediate outputs.
+- [`RPC_GCP_selection_pipeline_implementation.md`](RPC_GCP_selection_pipeline_implementation.md) — same paper on DROID + Sentinel-2 (`figs/pipeline/`, `pipeline_walkthrough.py`).
 
 Run: `python rpc_walkthrough.py` (needs `numpy`, `matplotlib`, `scipy`).
